@@ -911,6 +911,38 @@ def unpack_defs(schema: dict, defs: dict) -> None:
                 queue.append((item, node, idx, active_defs, ref_chain))
 
 
+def _has_legacy_defs(schema: object) -> bool:
+    if not isinstance(schema, dict):
+        return False
+    components = schema.get("components")
+    return "definitions" in schema or (
+        isinstance(components, dict) and isinstance(components.get("schemas"), dict)
+    )
+
+
+def unpack_legacy_defs(schema: dict, *, copy: bool = False) -> dict:
+    """Inline ``$ref``s backed by draft-04 ``definitions`` / OpenAPI
+    ``components.schemas``. ``$defs`` is left untouched.
+
+    Anthropic and Fireworks tool-schema resolvers only recognise ``$defs``;
+    legacy / OpenAPI def blocks are otherwise silently dropped and leave
+    dangling pointers. See https://github.com/BerriAI/litellm/issues/26692.
+
+    Mutates ``schema`` in place and returns it. Pass ``copy=True`` to deep-copy
+    first (only when there is actually work to do).
+    """
+    if not _has_legacy_defs(schema):
+        return schema
+    if copy:
+        import copy as _copy
+
+        schema = _copy.deepcopy(schema)
+    defs = schema.pop("definitions", None) or {}
+    defs.update(schema.pop("components", {}).get("schemas") or {})
+    unpack_defs(schema, defs)
+    return schema
+
+
 def _get_image_mime_type_from_url(url: str) -> Optional[str]:
     """
     Get mime type for common image URLs
